@@ -108,7 +108,7 @@ Reload: edit `config.yaml` and run again — no redeploy needed on the VM.
 | `itpro` | [itpro.lk/jobs](https://itpro.lk/jobs) | `article.job-card`, pagination `?p=N` |
 | `topjobs` | [topjobs.lk](https://www.topjobs.lk) | JSP search; `topjob.lk` redirects here |
 | `rooster` | [rooster.jobs](https://rooster.jobs/) | `api.rooster.jobs/jobSearch/jobs/search` (no browser) |
-| `xpressjobs` | [xpress.jobs](https://xpress.jobs/) | Public API `jobs/searchJobs` (no browser) |
+| `xpressjobs` | [xpress.jobs](https://xpress.jobs/) | Public API `jobs/searchJobs` (Chrome TLS via `curl_cffi`). **Often 403 on cloud VPS IPs** — set `enabled: false` on Azure if blocked. |
 
 To add another site: implement `JobSource` in `src/hermes/sources/`, register in `sources/__init__.py`, extend `SourcesConfig` in `config.py`.
 

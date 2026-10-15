@@ -3,7 +3,10 @@ from __future__ import annotations
 import logging
 import re
 import time
+from typing import Any
+
 import httpx
+from curl_cffi import requests as curl_requests
 
 from hermes.config import HermesConfig
 from hermes.dates import parse_xpress_posted_at
@@ -15,13 +18,7 @@ API_URL = "https://xpress.jobs/api/jobs/searchJobs"
 VIEW_BASE = "https://xpress.jobs/jobs/view"
 SITE_ORIGIN = "https://xpress.jobs"
 
-# Xpress often returns 403 for default httpx / datacenter clients without browser headers.
 _DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": f"{SITE_ORIGIN}/",
@@ -40,45 +37,53 @@ class XpressjobsSource:
         keywords = self._search_terms(config, source_cfg.search_terms)
         jobs: list[JobPosting] = []
         seen_ids: set[str] = set()
+        blocked_logged = False
 
-        with httpx.Client(
-            timeout=45.0,
-            follow_redirects=True,
-            headers=_DEFAULT_HEADERS,
-        ) as client:
-            for keyword in keywords:
-                for page in range(1, source_cfg.max_pages + 1):
-                    params = {
-                        "keyword": keyword,
-                        "page": page,
-                        "pageSize": source_cfg.page_size,
-                    }
-                    logger.info(
-                        "Fetching xpressjobs keyword=%r page=%s", keyword, page
+        for keyword in keywords:
+            for page in range(1, source_cfg.max_pages + 1):
+                params = {
+                    "keyword": keyword,
+                    "page": page,
+                    "pageSize": source_cfg.page_size,
+                }
+                logger.info(
+                    "Fetching xpressjobs keyword=%r page=%s", keyword, page
+                )
+                rows, status = _fetch_search_rows(params)
+                if status == 403:
+                    if not blocked_logged:
+                        logger.warning(
+                            "XpressJobs API returned 403 for this server "
+                            "(common on cloud/VPS IPs). Skipping xpressjobs for "
+                            "this run — set sources.xpressjobs.enabled: false "
+                            "on the VM to silence, or use ITPro/TopJobs/Rooster only."
+                        )
+                        blocked_logged = True
+                    return jobs
+
+                if rows is None:
+                    logger.error(
+                        "Failed to fetch xpressjobs keyword=%r page=%s",
+                        keyword,
+                        page,
                     )
-                    try:
-                        response = client.get(API_URL, params=params)
-                        response.raise_for_status()
-                        rows = response.json()
-                    except Exception:
-                        logger.exception("Failed to fetch xpressjobs page")
-                        break
+                    break
 
-                    if not isinstance(rows, list) or not rows:
-                        logger.info("No xpressjobs rows; stopping keyword pagination")
-                        break
+                if not rows:
+                    logger.info("No xpressjobs rows; stopping keyword pagination")
+                    break
 
-                    for row in rows:
-                        job = self._parse_row(row, source_cfg.listing_days)
-                        if job is None or job.job_id in seen_ids:
-                            continue
-                        seen_ids.add(job.job_id)
-                        jobs.append(job)
+                for row in rows:
+                    job = self._parse_row(row, source_cfg.listing_days)
+                    if job is None or job.job_id in seen_ids:
+                        continue
+                    seen_ids.add(job.job_id)
+                    jobs.append(job)
 
-                    if len(rows) < source_cfg.page_size:
-                        break
+                if len(rows) < source_cfg.page_size:
+                    break
 
-                    time.sleep(0.5)
+                time.sleep(0.5)
 
         return jobs
 
@@ -135,8 +140,58 @@ class XpressjobsSource:
         )
 
 
+def _fetch_search_rows(
+    params: dict[str, Any],
+) -> tuple[list[dict[str, Any]] | None, int | None]:
+    """Return (rows, http_status). rows None on non-403 errors."""
+    try:
+        response = curl_requests.get(
+            API_URL,
+            params=params,
+            headers=_DEFAULT_HEADERS,
+            impersonate="chrome131",
+            timeout=45,
+        )
+        if response.status_code == 403:
+            return None, 403
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return data, response.status_code
+        return None, response.status_code
+    except Exception:
+        logger.debug("curl_cffi xpress fetch failed; trying httpx", exc_info=True)
+
+    try:
+        with httpx.Client(
+            timeout=45.0,
+            follow_redirects=True,
+            headers={
+                **_DEFAULT_HEADERS,
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+            },
+        ) as client:
+            response = client.get(API_URL, params=params)
+            if response.status_code == 403:
+                return None, 403
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list):
+                return data, response.status_code
+            return None, response.status_code
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            return None, 403
+        return None, exc.response.status_code
+    except Exception:
+        return None, None
+
+
 def _slugify(title: str, company: str) -> str:
     text = f"{title}-{company}".lower()
     text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
     return text or "job"
-
