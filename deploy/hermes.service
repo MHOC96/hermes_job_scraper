@@ -5,8 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=hermes
-Group=hermes
+# Use the VM login user (e.g. azureuser). For a dedicated hermes user, chown the
+# app tree to hermes:hermes and run manual commands with sudo -u hermes.
+User=azureuser
+Group=azureuser
 WorkingDirectory=/opt/hermes_agent
 EnvironmentFile=/opt/hermes_agent/.env
 ExecStart=/opt/hermes_agent/.venv/bin/hermes run
