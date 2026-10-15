@@ -1,25 +1,66 @@
 # Hermes job agent
 
-Hermes watches Sri Lankan job boards, filters postings against your criteria, deduplicates them in SQLite, and sends new matches to Telegram.
+Hermes scrapes Sri Lankan job boards (**[ITPro.lk](https://itpro.lk/jobs)** and **[topjobs.lk](https://www.topjobs.lk)** / topjob.lk), filters listings against your criteria, keeps a **14-day** posting window (configurable), deduplicates in **SQLite**, and sends **new** matches to **Telegram**.
+
+Repository: [github.com/MHOC96/hermes_job_scraper](https://github.com/MHOC96/hermes_job_scraper)
+
+Built with **Python 3.10+** and **[Scrapling](https://github.com/D4Vinci/Scrapling)** (`Fetcher.get`).
+
+---
+
+## What gets committed to git
+
+| Tracked | Not tracked (local / VM only) |
+|---------|-------------------------------|
+| `src/`, `pyproject.toml`, `deploy/` | `.env` (Telegram token) |
+| `config.example.yaml`, `.env.example` | `config.yaml` (your live filters) |
+| `README.md` | `*.pem`, `data/`, `*.db`, `*.pdf` |
+
+Copy examples on each machine:
+
+```bash
+cp config.example.yaml config.yaml
+cp .env.example .env
+```
+
+---
 
 ## Telegram setup
 
-1. Open [@BotFather](https://t.me/BotFather) in Telegram and create a bot with `/newbot`. Copy the **bot token**.
-2. Start a chat with your bot (send any message).
-3. Obtain your **chat id**:
-   - For a personal chat, message [@userinfobot](https://t.me/userinfobot) or call `getUpdates` on the Bot API after messaging your bot.
-   - For a group, add the bot to the group and use the group chat id (often negative).
-4. Copy `.env.example` to `.env` and set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+1. Create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`) and copy the **bot token**.
+2. Open your bot in Telegram and send any message.
+3. Get your **chat id** ([@userinfobot](https://t.me/userinfobot) or `getUpdates` on the [Bot API](https://core.telegram.org/bots/api)).
+4. Put both values in `.env`:
 
-## Local install
+```env
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+```
+
+Never commit `.env` or paste tokens in chat.
+
+---
+
+## Local install (Windows or Linux)
 
 ```bash
+git clone https://github.com/MHOC96/hermes_job_scraper.git
+cd hermes_job_scraper
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux: source .venv/bin/activate
+```
+
+```bash
+# Linux / macOS
+source .venv/bin/activate
+# Windows
+.venv\Scripts\activate
+```
+
+```bash
 pip install -e .
 cp config.example.yaml config.yaml
 cp .env.example .env
+# edit config.yaml and .env
 hermes config validate
 hermes run --dry-run
 hermes run
@@ -28,69 +69,165 @@ hermes run
 Optional environment variables:
 
 - `HERMES_CONFIG_PATH` — path to `config.yaml` (default: `./config.yaml`)
-- `HERMES_DB_PATH` — SQLite database path (default: `./data/hermes.db`)
+- `HERMES_DB_PATH` — SQLite path (default: `./data/hermes.db`)
+
+---
 
 ## Configuring filters
 
-Edit `config.yaml` (see `config.example.yaml`):
+Edit `config.yaml` (start from `config.example.yaml`):
 
-- **`role_keywords`** — job **title** must contain one of these (e.g. `intern`, `trainee`).
-- **`track_keywords`** — at least one must match in **`match_fields`** (backend, AI, audit, BA, Power BI, etc.).
-- **`location_include`** — Colombo-area names; jobs must match location/title/company or count as remote if `location_allow_remote` is true.
-- **`max_posting_age_days`** — default `14` (today back two weeks); uses ITPro `datetime` and TopJobs opening date.
-- **`include_undated`** — set `true` only if you want listings with no parseable date (default `false`).
-- **`exclude_keywords`** — skip jobs whose matched fields contain these terms.
-- **`match_fields`** — `title`, `company`, `location`, `url`, or `source`.
-- Legacy **`job_titles`** / **`include_keywords`** — used only when `track_keywords` is empty.
+| Key | Purpose |
+|-----|---------|
+| **`role_keywords`** | Title must match one of these (`intern`, `internship`, `trainee`). Uses word boundaries so **internal** ≠ **intern**. |
+| **`track_keywords`** | At least one must match in `match_fields` (backend, AI, audit, BA, Power BI, etc.). |
+| **`location_include`** | Colombo-area (and nearby) names; also checks title/company. |
+| **`location_allow_remote`** | Allow listings marked remote / WFH. |
+| **`max_posting_age_days`** | Default `14` — ITPro posting time + TopJobs opening date. |
+| **`include_undated`** | `false` = drop jobs with no parseable date. |
+| **`exclude_keywords`** | Skip if any match field contains these terms. |
+| **`sources.itpro.max_pages`** | ITPro listing pages per run. |
+| **`sources.topjobs.search_terms`** | TopJobs keyword searches (one fetch per term). |
+| **`sources.topjobs.max_pages`** | Pages per keyword. |
 
-## Sources
+Legacy **`job_titles`** / **`include_keywords`** apply only when **`track_keywords`** is empty.
 
-Built-in sources (enable under `sources` in config):
+Reload: edit `config.yaml` and run again — no redeploy needed on the VM.
+
+---
+
+## Job sources
 
 | Key | Site | Notes |
 |-----|------|--------|
-| `itpro` | [ITPro Jobs](https://itpro.lk/jobs) | Paginates `?p=N`, parses `article.job-card` |
-| `topjobs` | [topjobs.lk](https://www.topjobs.lk) | Keyword search; uses `search_terms` or your job titles |
+| `itpro` | [itpro.lk/jobs](https://itpro.lk/jobs) | `article.job-card`, pagination `?p=N` |
+| `topjobs` | [topjobs.lk](https://www.topjobs.lk) | JSP search; `topjob.lk` redirects here |
 
-To add a source:
+To add another site: implement `JobSource` in `src/hermes/sources/`, register in `sources/__init__.py`, extend `SourcesConfig` in `config.py`.
 
-1. Implement `JobSource` in `src/hermes/sources/yoursource.py` with a `fetch(config) -> list[JobPosting]` method.
-2. Register it in `src/hermes/sources/__init__.py` (`SOURCE_REGISTRY`).
-3. Add a pydantic block under `SourcesConfig` in `config.py` and wire enable flags in `pipeline._enabled_sources`.
+---
 
-## VM deployment (systemd)
+## Telegram notifications
 
-On a Linux VM as user `hermes`:
+- Sends **multiple messages** if needed (8 jobs per message).
+- **Interleaves** `itpro` and `topjobs` so both appear in early batches.
+- Each link is labeled **View on itpro** / **View on topjobs**.
+- Only **new** jobs (not already in SQLite) are sent.
+
+Reset and resend all current matches (e.g. after a big config change):
 
 ```bash
-sudo useradd --system --home /opt/hermes_agent hermes || true
+# Linux
+rm -f data/hermes.db && hermes run
+
+# Windows PowerShell
+Remove-Item -Force data\hermes.db -ErrorAction SilentlyContinue; hermes run
+```
+
+---
+
+## Azure VM deployment (Ubuntu)
+
+Example: VM **hermes-vps**, user **azureuser**, app path **`/opt/hermes_agent`**.
+
+### 1. SSH from Windows
+
+Fix PEM permissions if OpenSSH complains:
+
+```powershell
+icacls "D:\path\to\hermes-vps_key.pem" /inheritance:r
+icacls "D:\path\to\hermes-vps_key.pem" /grant:r "$($env:USERNAME):(R)"
+```
+
+```powershell
+ssh -i "D:\path\to\hermes-vps_key.pem" azureuser@<VM_PUBLIC_IP>
+```
+
+### 2. Clone on the VM
+
+```bash
 sudo mkdir -p /opt/hermes_agent
-sudo cp -r . /opt/hermes_agent/
+sudo chown azureuser:azureuser /opt/hermes_agent
+git clone https://github.com/MHOC96/hermes_job_scraper.git /opt/hermes_agent
 cd /opt/hermes_agent
+```
+
+### 3. Secrets and config (from your PC)
+
+`config.yaml` and `.env` are **not** in git. Copy once:
+
+```powershell
+scp -i "D:\path\to\hermes-vps_key.pem" .env config.yaml azureuser@<VM_PUBLIC_IP>:/opt/hermes_agent/
+```
+
+Or on the VM: `cp config.example.yaml config.yaml` and `nano .env`.
+
+### 4. Install and test
+
+```bash
+cd /opt/hermes_agent
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip build-essential git
 python3 -m venv .venv
-sudo -u hermes .venv/bin/pip install -e .
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -e .
+mkdir -p data
+chmod 600 .env
+.venv/bin/hermes config validate
+.venv/bin/hermes run --dry-run
+.venv/bin/hermes run
+```
+
+First live run can take **1–2 minutes** (many TopJobs keyword pages).
+
+### 5. Hourly systemd timer
+
+```bash
+sudo useradd --system --home /opt/hermes_agent --shell /usr/sbin/nologin hermes 2>/dev/null || true
+sudo chown -R hermes:hermes /opt/hermes_agent
 sudo cp deploy/hermes.service deploy/hermes.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now hermes.timer
-sudo systemctl start hermes.service   # manual run
+sudo systemctl start hermes.service
 ```
 
-Ensure `/opt/hermes_agent/.env` and `config.yaml` exist and are readable by `hermes`.
+Check logs:
+
+```bash
+sudo journalctl -u hermes.service -n 50 --no-pager
+sudo systemctl list-timers | grep hermes
+```
+
+The VM must be **running** at timer fire times (hourly). Outbound HTTPS is required; no inbound ports needed for Hermes.
+
+### 6. Update after `git push`
+
+On the VM:
+
+```bash
+cd /opt/hermes_agent
+git pull
+.venv/bin/pip install -e .
+sudo systemctl start hermes.service
+```
+
+---
 
 ## CLI
 
 ```bash
 hermes config validate
-hermes run --dry-run
-hermes run
+hermes run --dry-run    # no DB write, no Telegram
+hermes run              # scrape, filter, dedupe, notify
 ```
 
-Telegram sends **multiple messages** if needed (mixed **itpro** and **topjobs** per batch). Links show `View on itpro` / `View on topjobs`.
+---
 
-If you already ran `hermes run` once and only saw ITPro, older runs capped at 10 jobs with ITPro listed first. To resend everything (e.g. after an upgrade), delete the local database and run again:
+## Troubleshooting
 
-```bash
-# Windows PowerShell
-Remove-Item -Force data\hermes.db -ErrorAction SilentlyContinue
-hermes run
-```
+| Issue | What to try |
+|-------|-------------|
+| `UNPROTECTED PRIVATE KEY FILE` | Restrict PEM ACLs with `icacls` (see above). |
+| No Telegram | Message the bot first; check `.env` on the VM; test outbound internet. |
+| Only ITPro in old runs | Upgrade to latest code; delete `data/hermes.db` and run again. |
+| `Permission denied` on VM | `sudo chown -R hermes:hermes /opt/hermes_agent` after `git pull`. |
