@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermes"
+version = "0.1.0"
+description = "Hermes job agent — scrape, filter, dedupe, and notify on new postings"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "scrapling[fetchers]",
+    "curl-cffi",
+    "httpx",
+    "pyyaml",
+    "pydantic-settings",
+    "typer",
+]
+
+[project.scripts]
+hermes = "hermes.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hermes"]

@@ -1,0 +1,15 @@
+[Unit]
+Description=Hermes job agent (one-shot scrape and notify)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hermes
+Group=hermes
+WorkingDirectory=/opt/hermes_agent
+EnvironmentFile=/opt/hermes_agent/.env
+ExecStart=/opt/hermes_agent/.venv/bin/hermes run
+
+[Install]
+WantedBy=multi-user.target

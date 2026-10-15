@@ -1,0 +1,46 @@
+# Copy to config.yaml — edit role_keywords, track_keywords, and location_include anytime.
+
+role_keywords:
+  - intern
+  - internship
+  - trainee
+
+track_keywords:
+  - backend
+  - software engineer
+  - ai engineer
+  - it audit
+  - business analyst
+  - power bi
+  - tableau
+  - rapidminer
+
+include_keywords: []
+exclude_keywords: []
+
+match_fields:
+  - title
+  - company
+  - location
+
+match_mode: any
+
+location_include:
+  - colombo
+
+location_allow_remote: true
+location_allow_empty: true
+
+max_posting_age_days: 14
+include_undated: false
+
+sources:
+  itpro:
+    enabled: true
+    max_pages: 3
+  topjobs:
+    enabled: true
+    max_pages: 2
+    search_terms:
+      - backend intern
+      - business analyst intern

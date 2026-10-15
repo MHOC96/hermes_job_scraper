@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Hermes job agent hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=hermes.service
+
+[Install]
+WantedBy=timers.target
