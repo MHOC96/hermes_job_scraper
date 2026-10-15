@@ -7,7 +7,7 @@ name = "hermes"
 version = "0.1.0"
 description = "Hermes job agent — scrape, filter, dedupe, and notify on new postings"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "scrapling[fetchers]",
     "curl-cffi",
