@@ -7,6 +7,7 @@ import typer
 
 from hermes.config import Settings, validate_config_file
 from hermes.pipeline import run_pipeline
+from hermes.sources import SOURCE_ORDER
 
 app = typer.Typer(
     name="hermes",
@@ -57,11 +58,13 @@ def config_validate(
     settings = Settings()
     path = config or settings.hermes_config_path
     cfg = validate_config_file(path)
-    enabled = []
-    if cfg.sources.itpro.enabled:
-        enabled.append("itpro")
-    if cfg.sources.topjobs.enabled:
-        enabled.append("topjobs")
+    flags = {
+        "itpro": cfg.sources.itpro.enabled,
+        "topjobs": cfg.sources.topjobs.enabled,
+        "rooster": cfg.sources.rooster.enabled,
+        "xpressjobs": cfg.sources.xpressjobs.enabled,
+    }
+    enabled = [name for name in SOURCE_ORDER if flags.get(name)]
     typer.echo(f"Config OK: {path}")
     typer.echo(f"  role_keywords: {len(cfg.role_keywords)}")
     typer.echo(f"  track_keywords: {len(cfg.track_keywords)}")

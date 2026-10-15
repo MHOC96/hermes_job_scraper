@@ -7,6 +7,7 @@ from collections import defaultdict
 import httpx
 
 from hermes.models import JobPosting
+from hermes.sources import SOURCE_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ def _interleave_by_source(jobs: list[JobPosting]) -> list[JobPosting]:
     buckets: dict[str, list[JobPosting]] = defaultdict(list)
     for job in jobs:
         buckets[job.source].append(job)
-    order = sorted(buckets.keys())
+    order = [s for s in SOURCE_ORDER if s in buckets]
+    order.extend(sorted(set(buckets.keys()) - set(order)))
     merged: list[JobPosting] = []
     while any(buckets[s] for s in order):
         for source in order:

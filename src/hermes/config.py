@@ -19,9 +19,32 @@ class TopjobsSourceConfig(BaseModel):
     max_pages: int = Field(default=2, ge=1, le=20)
 
 
+class XpressjobsSourceConfig(BaseModel):
+    enabled: bool = True
+    search_terms: list[str] = Field(default_factory=list)
+    max_pages: int = Field(default=2, ge=1, le=20)
+    page_size: int = Field(default=30, ge=5, le=100)
+    listing_days: int = Field(
+        default=14,
+        ge=7,
+        le=90,
+        description="Assumed ad lifetime on Xpress when createdDate is missing.",
+    )
+
+
+class RoosterSourceConfig(BaseModel):
+    enabled: bool = True
+    search_terms: list[str] = Field(default_factory=list)
+    max_pages: int = Field(default=2, ge=1, le=20)
+    page_size: int = Field(default=20, ge=5, le=100)
+    country: str = Field(default="Sri Lanka")
+
+
 class SourcesConfig(BaseModel):
     itpro: ItproSourceConfig = Field(default_factory=ItproSourceConfig)
     topjobs: TopjobsSourceConfig = Field(default_factory=TopjobsSourceConfig)
+    rooster: RoosterSourceConfig = Field(default_factory=RoosterSourceConfig)
+    xpressjobs: XpressjobsSourceConfig = Field(default_factory=XpressjobsSourceConfig)
 
 
 class HermesConfig(BaseModel):

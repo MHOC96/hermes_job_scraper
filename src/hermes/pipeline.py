@@ -7,19 +7,20 @@ from hermes.config import HermesConfig, Settings, load_config
 from hermes.filters import filter_jobs
 from hermes.models import JobPosting
 from hermes.notify.telegram import send_job_batch
-from hermes.sources import SOURCE_REGISTRY
+from hermes.sources import SOURCE_ORDER, SOURCE_REGISTRY
 from hermes.store import JobStore
 
 logger = logging.getLogger(__name__)
 
 
 def _enabled_sources(config: HermesConfig) -> list[str]:
-    names: list[str] = []
-    if config.sources.itpro.enabled:
-        names.append("itpro")
-    if config.sources.topjobs.enabled:
-        names.append("topjobs")
-    return names
+    flags = {
+        "itpro": config.sources.itpro.enabled,
+        "topjobs": config.sources.topjobs.enabled,
+        "rooster": config.sources.rooster.enabled,
+        "xpressjobs": config.sources.xpressjobs.enabled,
+    }
+    return [name for name in SOURCE_ORDER if flags.get(name)]
 
 
 def fetch_all_sources(config: HermesConfig) -> list[JobPosting]:

@@ -14,6 +14,7 @@ _FIELD_GETTERS: dict[str, Callable[[JobPosting], str]] = {
     "title": lambda job: job.title,
     "company": lambda job: job.company,
     "location": lambda job: job.location,
+    "description": lambda job: job.description,
     "url": lambda job: job.url,
     "source": lambda job: job.source,
 }

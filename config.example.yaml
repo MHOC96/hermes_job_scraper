@@ -27,6 +27,7 @@ match_fields:
   - title
   - company
   - location
+  - description
 
 match_mode: any
 
@@ -51,3 +52,20 @@ sources:
       - business analyst intern
       - data engineer intern
       - erp intern
+  rooster:
+    enabled: true
+    max_pages: 2
+    page_size: 20
+    country: Sri Lanka
+    search_terms:
+      - intern
+      - backend intern
+  xpressjobs:
+    enabled: true
+    max_pages: 2
+    page_size: 30
+    listing_days: 14
+    search_terms:
+      - intern
+      - IT intern
+      - backend intern

@@ -13,3 +13,4 @@ class JobPosting:
     location: str
     url: str
     posted_at: datetime | None = None
+    description: str = ""

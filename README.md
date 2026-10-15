@@ -1,6 +1,6 @@
 # Hermes job agent
 
-Hermes scrapes Sri Lankan job boards (**[ITPro.lk](https://itpro.lk/jobs)** and **[topjobs.lk](https://www.topjobs.lk)** / topjob.lk), filters listings against your criteria, keeps a **14-day** posting window (configurable), deduplicates in **SQLite**, and sends **new** matches to **Telegram**.
+Hermes scrapes four Sri Lankan job boards — **[ITPro.lk](https://itpro.lk/jobs)**, **[topjobs.lk](https://www.topjobs.lk)** (topjob.lk), **[Rooster.jobs](https://rooster.jobs/)**, and **[XpressJobs](https://xpress.jobs/)** — filters listings against your criteria, keeps a **14-day** posting window (configurable), deduplicates in **SQLite**, and sends **new** matches to **Telegram**.
 
 Repository: [github.com/MHOC96/hermes_job_scraper](https://github.com/MHOC96/hermes_job_scraper)
 
@@ -83,12 +83,17 @@ Edit `config.yaml` (start from `config.example.yaml`):
 | **`track_keywords`** | At least one must match in `match_fields` (backend, AI, audit, BA, Power BI, etc.). |
 | **`location_include`** | Colombo-area (and nearby) names; also checks title/company. |
 | **`location_allow_remote`** | Allow listings marked remote / WFH. |
-| **`max_posting_age_days`** | Default `14` — ITPro posting time + TopJobs opening date. |
+| **`max_posting_age_days`** | Default `14` — uses each site’s posting/opening date when available. |
 | **`include_undated`** | `false` = drop jobs with no parseable date. |
 | **`exclude_keywords`** | Skip if any match field contains these terms. |
 | **`sources.itpro.max_pages`** | ITPro listing pages per run. |
 | **`sources.topjobs.search_terms`** | TopJobs keyword searches (one fetch per term). |
 | **`sources.topjobs.max_pages`** | Pages per keyword. |
+| **`sources.rooster.search_terms`** | Rooster job-search API phrases (one per request). |
+| **`sources.rooster.country`** | Country filter for Rooster (default `Sri Lanka`). |
+| **`sources.xpressjobs.search_terms`** | XpressJobs API keyword searches. |
+| **`sources.xpressjobs.listing_days`** | When `createdDate` is missing, estimate post date from expiry countdown (default 14, aligned with `max_posting_age_days`). |
+| **`match_fields` + `description`** | Xpress search returns `overview`; include `description` so track keywords match the ad body. |
 
 Legacy **`job_titles`** / **`include_keywords`** apply only when **`track_keywords`** is empty.
 
@@ -102,6 +107,8 @@ Reload: edit `config.yaml` and run again — no redeploy needed on the VM.
 |-----|------|--------|
 | `itpro` | [itpro.lk/jobs](https://itpro.lk/jobs) | `article.job-card`, pagination `?p=N` |
 | `topjobs` | [topjobs.lk](https://www.topjobs.lk) | JSP search; `topjob.lk` redirects here |
+| `rooster` | [rooster.jobs](https://rooster.jobs/) | `api.rooster.jobs/jobSearch/jobs/search` (no browser) |
+| `xpressjobs` | [xpress.jobs](https://xpress.jobs/) | Public API `jobs/searchJobs` (no browser) |
 
 To add another site: implement `JobSource` in `src/hermes/sources/`, register in `sources/__init__.py`, extend `SourcesConfig` in `config.py`.
 
@@ -110,8 +117,8 @@ To add another site: implement `JobSource` in `src/hermes/sources/`, register in
 ## Telegram notifications
 
 - Sends **multiple messages** if needed (8 jobs per message).
-- **Interleaves** `itpro` and `topjobs` so both appear in early batches.
-- Each link is labeled **View on itpro** / **View on topjobs**.
+- **Interleaves** sources so listings from each site appear in early batches.
+- Each link is labeled **View on** `{source}` (e.g. `rooster`, `xpressjobs`).
 - Only **new** jobs (not already in SQLite) are sent.
 
 Reset and resend all current matches (e.g. after a big config change):
@@ -183,8 +190,9 @@ First live run can take **1–2 minutes** (many TopJobs keyword pages).
 ### 5. Hourly systemd timer
 
 ```bash
-sudo useradd --system --home /opt/hermes_agent --shell /usr/sbin/nologin hermes 2>/dev/null || true
-sudo chown -R hermes:hermes /opt/hermes_agent
+# App files should be owned by your SSH user (e.g. azureuser) so `.env` is readable.
+sudo chown -R azureuser:azureuser /opt/hermes_agent
+chmod 600 /opt/hermes_agent/.env
 sudo cp deploy/hermes.service deploy/hermes.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now hermes.timer
