@@ -13,6 +13,20 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://xpress.jobs/api/jobs/searchJobs"
 VIEW_BASE = "https://xpress.jobs/jobs/view"
+SITE_ORIGIN = "https://xpress.jobs"
+
+# Xpress often returns 403 for default httpx / datacenter clients without browser headers.
+_DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": f"{SITE_ORIGIN}/",
+    "Origin": SITE_ORIGIN,
+}
 
 
 class XpressjobsSource:
@@ -27,7 +41,11 @@ class XpressjobsSource:
         jobs: list[JobPosting] = []
         seen_ids: set[str] = set()
 
-        with httpx.Client(timeout=45.0, follow_redirects=True) as client:
+        with httpx.Client(
+            timeout=45.0,
+            follow_redirects=True,
+            headers=_DEFAULT_HEADERS,
+        ) as client:
             for keyword in keywords:
                 for page in range(1, source_cfg.max_pages + 1):
                     params = {
