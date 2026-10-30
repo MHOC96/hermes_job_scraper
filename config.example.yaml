@@ -64,7 +64,7 @@ sources:
       - backend intern
       - project manager intern
   xpressjobs:
-    enabled: true
+    enabled: false
     max_pages: 2
     page_size: 30
     listing_days: 14
