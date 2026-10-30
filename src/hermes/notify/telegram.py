@@ -61,15 +61,49 @@ def _send_message(text: str, *, bot_token: str, chat_id: str) -> None:
             raise RuntimeError(f"Telegram API error: {body}")
 
 
+def parse_chat_ids(raw: str | None) -> list[str]:
+    """Split a comma/whitespace separated list of chat ids or @channel usernames."""
+    if not raw:
+        return []
+    parts = raw.replace(";", ",").replace("\n", ",").split(",")
+    seen: list[str] = []
+    for part in parts:
+        value = part.strip()
+        if value and value not in seen:
+            seen.append(value)
+    return seen
+
+
 def send_job_batch(
     jobs: list[JobPosting],
     *,
     bot_token: str,
     chat_id: str,
 ) -> None:
+    """Send jobs to every chat in ``chat_id`` (comma-separated ids / @channels).
+
+    A failure for one destination does not stop delivery to the others.
+    """
     if not jobs:
         return
 
+    failures: list[str] = []
+    for target in parse_chat_ids(chat_id):
+        try:
+            _send_to_chat(jobs, bot_token=bot_token, chat_id=target)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to send jobs to %s: %s", target, type(exc).__name__)
+            failures.append(target)
+    if failures:
+        raise RuntimeError(f"Telegram delivery failed for: {', '.join(failures)}")
+
+
+def _send_to_chat(
+    jobs: list[JobPosting],
+    *,
+    bot_token: str,
+    chat_id: str,
+) -> None:
     ordered = _interleave_by_source(jobs)
     total = len(ordered)
 

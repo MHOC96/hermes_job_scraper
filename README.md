@@ -37,6 +37,13 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
+To also post to a **public channel** (add the bot as an admin with "Post messages"), list
+multiple destinations separated by commas — numeric ids or `@channelusername`:
+
+```env
+TELEGRAM_CHAT_ID=123456789,@your_channel
+```
+
 Never commit `.env` or paste tokens in chat.
 
 ---

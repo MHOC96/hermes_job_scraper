@@ -19,6 +19,8 @@ track_keywords:
   - power bi
   - tableau
   - rapidminer
+  - project manager
+  - project management
 
 include_keywords: []
 exclude_keywords: []
@@ -52,6 +54,7 @@ sources:
       - business analyst intern
       - data engineer intern
       - erp intern
+      - project manager intern
   rooster:
     enabled: true
     max_pages: 2
@@ -60,6 +63,7 @@ sources:
     search_terms:
       - intern
       - backend intern
+      - project manager intern
   xpressjobs:
     enabled: true
     max_pages: 2
@@ -69,3 +73,4 @@ sources:
       - intern
       - IT intern
       - backend intern
+      - project manager intern
