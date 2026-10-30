@@ -58,7 +58,7 @@ class HermesConfig(BaseModel):
     match_mode: Literal["any", "all"] = "any"
     # Internship gate: at least one must appear in the job title.
     role_keywords: list[str] = Field(
-        default_factory=lambda: ["intern", "internship", "trainee"]
+        default_factory=lambda: ["intern", "internship"]
     )
     # Career tracks: at least one must match match_fields (backend, AI, audit, BA, etc.).
     track_keywords: list[str] = Field(default_factory=list)
@@ -103,6 +103,7 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str | None = Field(default=None, alias="TELEGRAM_CHAT_ID")
+    xpress_proxy: str | None = Field(default=None, alias="XPRESS_PROXY")
     hermes_db_path: Path = Field(
         default=Path("data/hermes.db"), alias="HERMES_DB_PATH"
     )

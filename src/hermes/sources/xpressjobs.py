@@ -8,9 +8,9 @@ from typing import Any
 import httpx
 from curl_cffi import requests as curl_requests
 
-from hermes.config import HermesConfig
+from hermes.config import HermesConfig, Settings
 from hermes.dates import parse_xpress_posted_at
-from hermes.models import JobPosting
+from hermes.models import JobPosting, SourceUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,9 @@ class XpressjobsSource:
         keywords = self._search_terms(config, source_cfg.search_terms)
         jobs: list[JobPosting] = []
         seen_ids: set[str] = set()
-        blocked_logged = False
+        proxy = Settings().xpress_proxy or None
+        any_ok = False
+        errors = 0
 
         for keyword in keywords:
             for page in range(1, source_cfg.max_pages + 1):
@@ -49,17 +51,16 @@ class XpressjobsSource:
                 logger.info(
                     "Fetching xpressjobs keyword=%r page=%s", keyword, page
                 )
-                rows, status = _fetch_search_rows(params)
+                rows, status = _fetch_search_rows(params, proxy=proxy)
                 if status == 403:
-                    if not blocked_logged:
-                        logger.warning(
-                            "XpressJobs API returned 403 for this server "
-                            "(common on cloud/VPS IPs). Skipping xpressjobs for "
-                            "this run — set sources.xpressjobs.enabled: false "
-                            "on the VM to silence, or use ITPro/TopJobs/Rooster only."
-                        )
-                        blocked_logged = True
-                    return jobs
+                    logger.warning(
+                        "XpressJobs returned 403 for this server (common on "
+                        "cloud/VPS IPs). Set XPRESS_PROXY in .env to route "
+                        "XpressJobs through a proxy, or disable the source."
+                    )
+                    if jobs:
+                        return jobs
+                    raise SourceUnavailableError("blocked by site (HTTP 403)")
 
                 if rows is None:
                     logger.error(
@@ -67,8 +68,10 @@ class XpressjobsSource:
                         keyword,
                         page,
                     )
+                    errors += 1
                     break
 
+                any_ok = True
                 if not rows:
                     logger.info("No xpressjobs rows; stopping keyword pagination")
                     break
@@ -85,6 +88,8 @@ class XpressjobsSource:
 
                 time.sleep(0.5)
 
+        if errors and not any_ok:
+            raise SourceUnavailableError("requests failed")
         return jobs
 
     @staticmethod
@@ -96,7 +101,6 @@ class XpressjobsSource:
                 "intern",
                 "IT intern",
                 "internship",
-                "trainee",
                 "backend intern",
                 "data engineer intern",
                 "business analyst intern",
@@ -142,6 +146,7 @@ class XpressjobsSource:
 
 def _fetch_search_rows(
     params: dict[str, Any],
+    proxy: str | None = None,
 ) -> tuple[list[dict[str, Any]] | None, int | None]:
     """Return (rows, http_status). rows None on non-403 errors."""
     try:
@@ -151,6 +156,7 @@ def _fetch_search_rows(
             headers=_DEFAULT_HEADERS,
             impersonate="chrome131",
             timeout=45,
+            proxies={"http": proxy, "https": proxy} if proxy else None,
         )
         if response.status_code == 403:
             return None, 403
@@ -166,6 +172,7 @@ def _fetch_search_rows(
         with httpx.Client(
             timeout=45.0,
             follow_redirects=True,
+            proxy=proxy,
             headers={
                 **_DEFAULT_HEADERS,
                 "User-Agent": (

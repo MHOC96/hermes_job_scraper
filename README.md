@@ -44,6 +44,9 @@ multiple destinations separated by commas — numeric ids or `@channelusername`:
 TELEGRAM_CHAT_ID=123456789,@your_channel
 ```
 
+If a source cannot be reached (e.g. XpressJobs blocks cloud IPs), the alert shows it as ⚠️ unavailable.
+Set `XPRESS_PROXY=http://user:pass@host:port` in `.env` to route XpressJobs through a proxy.
+
 Never commit `.env` or paste tokens in chat.
 
 ---
@@ -86,7 +89,7 @@ Edit `config.yaml` (start from `config.example.yaml`):
 
 | Key | Purpose |
 |-----|---------|
-| **`role_keywords`** | Title must match one of these (`intern`, `internship`, `trainee`). Uses word boundaries so **internal** ≠ **intern**. |
+| **`role_keywords`** | Title must match one of these (`intern`, `internship`). Uses word boundaries so **internal** ≠ **intern**. |
 | **`track_keywords`** | At least one must match in `match_fields` (backend, AI, audit, BA, Power BI, etc.). |
 | **`location_include`** | Colombo-area (and nearby) names; also checks title/company. |
 | **`location_allow_remote`** | Allow listings marked remote / WFH. |

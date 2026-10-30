@@ -5,7 +5,7 @@ from pathlib import Path
 
 from hermes.config import HermesConfig, Settings, load_config
 from hermes.filters import filter_jobs
-from hermes.models import JobPosting
+from hermes.models import JobPosting, SourceStatus, SourceUnavailableError
 from hermes.notify.telegram import send_job_batch
 from hermes.sources import SOURCE_ORDER, SOURCE_REGISTRY
 from hermes.store import JobStore
@@ -23,8 +23,11 @@ def _enabled_sources(config: HermesConfig) -> list[str]:
     return [name for name in SOURCE_ORDER if flags.get(name)]
 
 
-def fetch_all_sources(config: HermesConfig) -> list[JobPosting]:
+def fetch_all_sources(
+    config: HermesConfig,
+) -> tuple[list[JobPosting], dict[str, SourceStatus]]:
     jobs: list[JobPosting] = []
+    statuses: dict[str, SourceStatus] = {}
     for name in _enabled_sources(config):
         source = SOURCE_REGISTRY.get(name)
         if source is None:
@@ -32,10 +35,18 @@ def fetch_all_sources(config: HermesConfig) -> list[JobPosting]:
             continue
         logger.info("Running source %s", name)
         try:
-            jobs.extend(source.fetch(config))
-        except Exception:
+            fetched = source.fetch(config)
+            jobs.extend(fetched)
+            statuses[name] = SourceStatus(name=name, fetched=len(fetched))
+        except SourceUnavailableError as exc:
+            logger.warning("Source %s unavailable: %s", name, exc)
+            statuses[name] = SourceStatus(name=name, ok=False, error=str(exc))
+        except Exception as exc:  # noqa: BLE001
             logger.exception("Source %s failed", name)
-    return jobs
+            statuses[name] = SourceStatus(
+                name=name, ok=False, error=f"error ({type(exc).__name__})"
+            )
+    return jobs, statuses
 
 
 def run_pipeline(
@@ -46,7 +57,7 @@ def run_pipeline(
     settings = Settings()
     config = load_config(config_path or settings.hermes_config_path)
 
-    raw_jobs = fetch_all_sources(config)
+    raw_jobs, statuses = fetch_all_sources(config)
     by_source: dict[str, int] = {}
     for job in raw_jobs:
         by_source[job.source] = by_source.get(job.source, 0) + 1
@@ -84,7 +95,12 @@ def run_pipeline(
     token = settings.telegram_bot_token
     chat_id = settings.telegram_chat_id
     if new_jobs and token and chat_id:
-        send_job_batch(new_jobs, bot_token=token, chat_id=chat_id)
+        send_job_batch(
+            new_jobs,
+            bot_token=token,
+            chat_id=chat_id,
+            source_status=statuses,
+        )
     elif new_jobs:
         logger.warning(
             "New jobs found but TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set; "

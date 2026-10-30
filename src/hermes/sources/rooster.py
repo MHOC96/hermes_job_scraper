@@ -75,7 +75,6 @@ class RoosterSource:
             terms = [
                 "intern",
                 "internship",
-                "trainee",
                 "backend intern",
                 "data engineer intern",
                 "business analyst intern",

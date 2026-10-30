@@ -14,3 +14,17 @@ class JobPosting:
     url: str
     posted_at: datetime | None = None
     description: str = ""
+
+
+class SourceUnavailableError(RuntimeError):
+    """Raised by a source that cannot be reached (e.g. blocked by the site)."""
+
+
+@dataclass(slots=True)
+class SourceStatus:
+    """Outcome of one source during a pipeline run."""
+
+    name: str
+    ok: bool = True
+    fetched: int = 0
+    error: str | None = None
