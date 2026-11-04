@@ -19,6 +19,7 @@ def _enabled_sources(config: HermesConfig) -> list[str]:
         "topjobs": config.sources.topjobs.enabled,
         "rooster": config.sources.rooster.enabled,
         "xpressjobs": config.sources.xpressjobs.enabled,
+        "jobseeker": config.sources.jobseeker.enabled,
     }
     return [name for name in SOURCE_ORDER if flags.get(name)]
 
@@ -99,6 +100,7 @@ def run_pipeline(
             new_jobs,
             bot_token=token,
             chat_id=chat_id,
+            config=config,
             source_status=statuses,
         )
     elif new_jobs:

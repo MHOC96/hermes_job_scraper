@@ -119,6 +119,7 @@ Reload: edit `config.yaml` and run again — no redeploy needed on the VM.
 | `topjobs` | [topjobs.lk](https://www.topjobs.lk) | JSP search; `topjob.lk` redirects here |
 | `rooster` | [rooster.jobs](https://rooster.jobs/) | `api.rooster.jobs/jobSearch/jobs/search` (no browser) |
 | `xpressjobs` | [xpress.jobs](https://xpress.jobs/) | Public API `jobs/searchJobs` (Chrome TLS via `curl_cffi`). **Often 403 on cloud VPS IPs** — set `enabled: false` on Azure if blocked. |
+| `jobseeker` | [jobseeker.lk](https://jobseeker.lk/) | WordPress REST API (`internship` category posts) |
 
 To add another site: implement `JobSource` in `src/hermes/sources/`, register in `sources/__init__.py`, extend `SourcesConfig` in `config.py`.
 
@@ -126,10 +127,9 @@ To add another site: implement `JobSource` in `src/hermes/sources/`, register in
 
 ## Telegram notifications
 
-- Sends **multiple messages** if needed (8 jobs per message).
-- **Interleaves** sources so listings from each site appear in early batches.
-- Each link is labeled **View on** `{source}` (e.g. `rooster`, `xpressjobs`).
-- Only **new** jobs (not already in SQLite) are sent.
+- Groups **new** jobs **by role** (Backend, Software Engineer, AI/ML, Data Analysis, BA, ERP, Project Manager).
+- Summary lists role counts; each job line shows which site it came from.
+- Only **intern / internship / trainee / management trainee** titles pass filters (see `role_keywords`).
 
 Reset and resend all current matches (e.g. after a big config change):
 

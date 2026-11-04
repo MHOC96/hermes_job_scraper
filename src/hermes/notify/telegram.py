@@ -7,13 +7,14 @@ from datetime import datetime
 
 import httpx
 
+from hermes.config import HermesConfig
 from hermes.models import JobPosting, SourceStatus
 from hermes.sources import SOURCE_ORDER
+from hermes.tracks import category_order, classify_track
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
-# Telegram hard limit is 4096 characters; keep headroom for HTML entities.
 MAX_MESSAGE_CHARS = 3700
 
 SOURCE_LABELS = {
@@ -21,6 +22,7 @@ SOURCE_LABELS = {
     "topjobs": "TopJobs.lk",
     "rooster": "Rooster.jobs",
     "xpressjobs": "XpressJobs",
+    "jobseeker": "Jobseeker.lk",
 }
 _DIVIDER = "━━━━━━━━━━━━━━━"
 
@@ -33,6 +35,7 @@ def _format_job(index: int, job: JobPosting) -> str:
     title = html.escape(job.title)
     company = html.escape(job.company)
     url = html.escape(job.url, quote=True)
+    source_label = html.escape(_label(job.source))
 
     lines = [f"<b>{index}. {title}</b>", f"🏢 {company}"]
 
@@ -41,6 +44,7 @@ def _format_job(index: int, job: JobPosting) -> str:
         details.append(f"📍 {html.escape(job.location)}")
     if job.posted_at:
         details.append(f"🗓 {job.posted_at.strftime('%d %b %Y')}")
+    details.append(f"via {source_label}")
     if details:
         lines.append("  ·  ".join(details))
 
@@ -48,19 +52,21 @@ def _format_job(index: int, job: JobPosting) -> str:
     return "\n".join(lines)
 
 
-def _group_by_source(jobs: list[JobPosting]) -> list[tuple[str, list[JobPosting]]]:
+def _group_by_track(
+    jobs: list[JobPosting], config: HermesConfig
+) -> list[tuple[str, list[JobPosting]]]:
     buckets: dict[str, list[JobPosting]] = defaultdict(list)
     for job in jobs:
-        buckets[job.source].append(job)
-    order = [s for s in SOURCE_ORDER if s in buckets]
-    order.extend(sorted(set(buckets) - set(order)))
+        buckets[classify_track(job, config)].append(job)
 
     def newest_first(job: JobPosting) -> tuple[int, float]:
         if job.posted_at is None:
             return (1, 0.0)
         return (0, -job.posted_at.timestamp())
 
-    return [(s, sorted(buckets[s], key=newest_first)) for s in order]
+    order = [c for c in category_order() if c in buckets]
+    order.extend(sorted(set(buckets) - set(order)))
+    return [(name, sorted(buckets[name], key=newest_first)) for name in order]
 
 
 def _summary_block(
@@ -68,51 +74,56 @@ def _summary_block(
     groups: list[tuple[str, list[JobPosting]]],
     source_status: dict[str, SourceStatus] | None,
 ) -> str:
-    counts = {source: len(items) for source, items in groups}
     now = datetime.now().strftime("%d %b %Y, %H:%M")
     noun = "internship" if total == 1 else "internships"
 
     lines = [
-        f"🚀 <b>{total} new {noun}</b>",
+        f"🚀 <b>{total} new {noun}</b> (Colombo-area focus)",
         f"<i>{html.escape(now)}</i>",
         "",
-        "📊 <b>Sources</b>",
+        "📂 <b>By role</b>",
     ]
 
-    names = [s for s in SOURCE_ORDER if s in counts or (source_status and s in source_status)]
-    names.extend(sorted(set(counts) - set(names)))
-    for name in names:
-        status = source_status.get(name) if source_status else None
-        label = html.escape(_label(name))
-        if status is not None and not status.ok:
-            reason = html.escape(status.error or "unavailable")
-            lines.append(f"⚠️ {label} — unavailable: {reason}")
-        else:
-            n = counts.get(name, 0)
-            lines.append(f"✅ {label} — {n} new" if n else f"✅ {label} — no new")
+    for name, items in groups:
+        lines.append(f"• {html.escape(name)} — {len(items)}")
+
+    if source_status:
+        lines.extend(["", "📡 <b>Sources</b>"])
+        for name in SOURCE_ORDER:
+            status = source_status.get(name)
+            if status is None:
+                continue
+            label = html.escape(_label(name))
+            if not status.ok:
+                reason = html.escape(status.error or "unavailable")
+                lines.append(f"⚠️ {label} — {reason}")
+            elif status.fetched:
+                lines.append(f"✅ {label} — scanned")
+            else:
+                lines.append(f"✅ {label} — no new")
+
     return "\n".join(lines)
 
 
 def _section_head(label: str, count: int, *, continued: bool) -> str:
     suffix = ", continued" if continued else ""
-    return f"{_DIVIDER}\n📌 <b>{label}</b> ({count}{suffix})"
+    return f"{_DIVIDER}\n📌 <b>{html.escape(label)}</b> ({count}{suffix})"
 
 
 def _build_messages(
     jobs: list[JobPosting],
+    config: HermesConfig,
     source_status: dict[str, SourceStatus] | None,
 ) -> list[str]:
-    """Pack the summary and per-source job lists into Telegram-sized messages."""
-    groups = _group_by_source(jobs)
+    groups = _group_by_track(jobs, config)
     messages: list[str] = []
     current = _summary_block(len(jobs), groups, source_status)
 
-    for source, items in groups:
-        label = html.escape(_label(source))
+    for category, items in groups:
         section_open = False
         for idx, job in enumerate(items, start=1):
             entry = _format_job(idx, job)
-            head = _section_head(label, len(items), continued=idx > 1)
+            head = _section_head(category, len(items), continued=idx > 1)
             addition = f"\n\n{entry}" if section_open else f"\n\n{head}\n\n{entry}"
             if len(current) + len(addition) > MAX_MESSAGE_CHARS:
                 messages.append(current)
@@ -123,6 +134,7 @@ def _build_messages(
 
     messages.append(current)
     return messages
+
 
 def _send_message(text: str, *, bot_token: str, chat_id: str) -> None:
     url = TELEGRAM_API.format(token=bot_token)
@@ -141,7 +153,6 @@ def _send_message(text: str, *, bot_token: str, chat_id: str) -> None:
 
 
 def parse_chat_ids(raw: str | None) -> list[str]:
-    """Split a comma/whitespace separated list of chat ids or @channel usernames."""
     if not raw:
         return []
     parts = raw.replace(";", ",").replace("\n", ",").split(",")
@@ -158,17 +169,13 @@ def send_job_batch(
     *,
     bot_token: str,
     chat_id: str,
+    config: HermesConfig,
     source_status: dict[str, SourceStatus] | None = None,
 ) -> None:
-    """Send jobs to every chat in ``chat_id`` (comma-separated ids / @channels).
-
-    Jobs are grouped per source and each source's availability is summarised at
-    the top. A failure for one destination does not stop delivery to the others.
-    """
     if not jobs:
         return
 
-    messages = _build_messages(jobs, source_status)
+    messages = _build_messages(jobs, config, source_status)
 
     failures: list[str] = []
     for target in parse_chat_ids(chat_id):

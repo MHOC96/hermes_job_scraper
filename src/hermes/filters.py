@@ -31,8 +31,34 @@ def _field_text(job: JobPosting, field: str) -> str:
     return (getter(job) or "").lower()
 
 
+# Substrings that appear inside unrelated words (e.g. sap in WhatsApp, erp in enterprise).
+_WORD_BOUNDARY_TERMS = frozenset(
+    {
+        "ai",
+        "api",
+        "erp",
+        "etl",
+        "grc",
+        "mis",
+        "nlp",
+        "rest",
+        "risk",
+        "sap",
+    }
+)
+
+
+def _match_pattern(term: str) -> str:
+    t = term.lower().strip()
+    if " " in t:
+        return re.escape(t)
+    if t in _WORD_BOUNDARY_TERMS or len(t) <= 3:
+        return rf"\b{re.escape(t)}\b"
+    return re.escape(t)
+
+
 def _term_matches(term: str, job: JobPosting, fields: list[str]) -> bool:
-    pattern = re.escape(term.lower())
+    pattern = _match_pattern(term)
     for field in fields:
         if re.search(pattern, _field_text(job, field), re.IGNORECASE):
             return True
@@ -50,10 +76,14 @@ def _role_title_matches(job: JobPosting, role_terms: list[str]) -> bool:
             if _substring_match(term, title):
                 return True
             continue
-        if term == "intern":
+        if term in {"intern", "internship"}:
             if re.search(r"\bintern\b", title) and not re.search(
                 r"\binternal\b", title
             ):
+                return True
+            continue
+        if term == "trainee":
+            if re.search(r"\btrainee\b", title):
                 return True
             continue
         if re.search(rf"\b{re.escape(term)}\b", title, re.IGNORECASE):

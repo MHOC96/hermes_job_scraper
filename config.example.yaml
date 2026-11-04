@@ -3,6 +3,8 @@
 role_keywords:
   - intern
   - internship
+  - trainee
+  - management trainee
 
 track_keywords:
   - backend
@@ -35,7 +37,7 @@ match_mode: any
 location_include:
   - colombo
 
-location_allow_remote: true
+location_allow_remote: false
 location_allow_empty: true
 
 max_posting_age_days: 14
@@ -73,3 +75,9 @@ sources:
       - IT intern
       - backend intern
       - project manager intern
+  jobseeker:
+    enabled: true
+    max_pages: 3
+    per_page: 50
+    category_slugs:
+      - internship

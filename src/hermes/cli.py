@@ -66,6 +66,7 @@ def config_validate(
         "topjobs": cfg.sources.topjobs.enabled,
         "rooster": cfg.sources.rooster.enabled,
         "xpressjobs": cfg.sources.xpressjobs.enabled,
+        "jobseeker": cfg.sources.jobseeker.enabled,
     }
     enabled = [name for name in SOURCE_ORDER if flags.get(name)]
     typer.echo(f"Config OK: {path}")

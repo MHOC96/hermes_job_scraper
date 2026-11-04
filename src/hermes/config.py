@@ -40,11 +40,21 @@ class RoosterSourceConfig(BaseModel):
     country: str = Field(default="Sri Lanka")
 
 
+class JobseekerSourceConfig(BaseModel):
+    enabled: bool = True
+    max_pages: int = Field(default=3, ge=1, le=20)
+    per_page: int = Field(default=50, ge=10, le=100)
+    category_slugs: list[str] = Field(
+        default_factory=lambda: ["internship", "it-jobs"]
+    )
+
+
 class SourcesConfig(BaseModel):
     itpro: ItproSourceConfig = Field(default_factory=ItproSourceConfig)
     topjobs: TopjobsSourceConfig = Field(default_factory=TopjobsSourceConfig)
     rooster: RoosterSourceConfig = Field(default_factory=RoosterSourceConfig)
     xpressjobs: XpressjobsSourceConfig = Field(default_factory=XpressjobsSourceConfig)
+    jobseeker: JobseekerSourceConfig = Field(default_factory=JobseekerSourceConfig)
 
 
 class HermesConfig(BaseModel):
@@ -58,7 +68,12 @@ class HermesConfig(BaseModel):
     match_mode: Literal["any", "all"] = "any"
     # Internship gate: at least one must appear in the job title.
     role_keywords: list[str] = Field(
-        default_factory=lambda: ["intern", "internship"]
+        default_factory=lambda: [
+            "intern",
+            "internship",
+            "trainee",
+            "management trainee",
+        ]
     )
     # Career tracks: at least one must match match_fields (backend, AI, audit, BA, etc.).
     track_keywords: list[str] = Field(default_factory=list)
