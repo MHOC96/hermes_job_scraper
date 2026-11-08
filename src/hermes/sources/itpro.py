@@ -8,6 +8,7 @@ from scrapling.fetchers import Fetcher
 
 from hermes.config import HermesConfig
 from hermes.dates import parse_itpro_datetime
+from hermes.images import accept_media_url, absolutize
 from hermes.models import JobPosting
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ class ItproSource:
                 break
 
             for card in cards:
-                job = self._parse_card(card)
+                job = self._parse_card(card, config)
                 if job is None or job.job_id in seen_ids:
                     continue
                 seen_ids.add(job.job_id)
@@ -53,7 +54,7 @@ class ItproSource:
 
         return jobs
 
-    def _parse_card(self, card) -> JobPosting | None:
+    def _parse_card(self, card, config: HermesConfig) -> JobPosting | None:
         href = card.css("a.jcl::attr(href), a::attr(href)").get()
         title = (card.css("h2.jc-title::text, .jc-title::text").get() or "").strip()
         if not href or not title:
@@ -68,6 +69,15 @@ class ItproSource:
         posted_raw = card.css("time.time-posted::attr(datetime)").get() or ""
         posted_at = parse_itpro_datetime(posted_raw)
 
+        image_url = ""
+        img_src = card.css("img::attr(src)").get()
+        if img_src:
+            candidate = absolutize(BASE_URL, img_src)
+            if accept_media_url(
+                candidate, width=None, height=None, telegram=config.telegram
+            ):
+                image_url = candidate
+
         return JobPosting(
             job_id=job_id,
             source=self.name,
@@ -76,6 +86,7 @@ class ItproSource:
             location=location,
             url=url,
             posted_at=posted_at,
+            image_url=image_url,
         )
 
     @staticmethod

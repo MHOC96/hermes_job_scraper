@@ -10,6 +10,7 @@ from curl_cffi import requests as curl_requests
 
 from hermes.config import HermesConfig, Settings
 from hermes.dates import parse_xpress_posted_at
+from hermes.images import accept_media_url
 from hermes.models import JobPosting, SourceUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class XpressjobsSource:
                     break
 
                 for row in rows:
-                    job = self._parse_row(row, source_cfg.listing_days)
+                    job = self._parse_row(row, source_cfg.listing_days, config)
                     if job is None or job.job_id in seen_ids:
                         continue
                     seen_ids.add(job.job_id)
@@ -119,7 +120,9 @@ class XpressjobsSource:
             deduped.append(short)
         return deduped
 
-    def _parse_row(self, row: dict, listing_days: int) -> JobPosting | None:
+    def _parse_row(
+        self, row: dict, listing_days: int, config: HermesConfig
+    ) -> JobPosting | None:
         job_id = row.get("jobId")
         title = (row.get("jobTitle") or "").strip()
         company = (row.get("organizationName") or "").strip()
@@ -131,6 +134,7 @@ class XpressjobsSource:
         slug = _slugify(title, company)
         url = f"{VIEW_BASE}/{job_id}/{slug}"
         posted_at = parse_xpress_posted_at(row, listing_days=listing_days)
+        image_url = _image_from_row(row, config)
 
         return JobPosting(
             job_id=f"xpressjobs:{job_id}",
@@ -141,7 +145,26 @@ class XpressjobsSource:
             url=url,
             posted_at=posted_at,
             description=description,
+            image_url=image_url,
         )
+
+
+def _image_from_row(row: dict, config: HermesConfig) -> str:
+    telegram = config.telegram
+    for key in (
+        "jobImage",
+        "imageUrl",
+        "bannerUrl",
+        "organizationLogo",
+        "companyLogo",
+        "image",
+    ):
+        val = row.get(key)
+        if isinstance(val, str) and val.strip().startswith("http"):
+            url = val.strip()
+            if accept_media_url(url, width=None, height=None, telegram=telegram):
+                return url
+    return ""
 
 
 def _fetch_search_rows(

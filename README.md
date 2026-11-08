@@ -96,6 +96,7 @@ Edit `config.yaml` (start from `config.example.yaml`):
 | **`max_posting_age_days`** | Default `14` — uses each site’s posting/opening date when available. |
 | **`include_undated`** | `false` = drop jobs with no parseable date. |
 | **`exclude_keywords`** | Skip if any match field contains these terms. |
+| **`exclude_title_keywords`** | Skip if the **title** contains these (QA, cyber security, IT audit, etc.). |
 | **`sources.itpro.max_pages`** | ITPro listing pages per run. |
 | **`sources.topjobs.search_terms`** | TopJobs keyword searches (one fetch per term). |
 | **`sources.topjobs.max_pages`** | Pages per keyword. |
@@ -130,6 +131,18 @@ To add another site: implement `JobSource` in `src/hermes/sources/`, register in
 - Groups **new** jobs **by role** (Backend, Software Engineer, AI/ML, Data Analysis, BA, ERP, Project Manager).
 - Summary lists role counts; each job line shows which site it came from.
 - Only **intern / internship / trainee / management trainee** titles pass filters (see `role_keywords`).
+- Optional **job flyer photos**: after the text summary, one `sendPhoto` per new job when `image_url` is set (`telegram` section in `config.yaml`).
+- **`poster_only: true`** skips small logos/icons; **`fetch_detail_images: true`** loads ITPro/TopJobs advert pages for flyers when the listing has no image.
+
+```yaml
+telegram:
+  send_job_images: true
+  photo_delay_seconds: 0.35
+  poster_only: true
+  min_image_width: 400
+  min_image_height: 300
+  fetch_detail_images: true
+```
 
 Reset and resend all current matches (e.g. after a big config change):
 

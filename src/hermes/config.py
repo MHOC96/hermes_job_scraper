@@ -49,6 +49,15 @@ class JobseekerSourceConfig(BaseModel):
     )
 
 
+class TelegramConfig(BaseModel):
+    send_job_images: bool = True
+    photo_delay_seconds: float = Field(default=0.35, ge=0.0, le=10.0)
+    poster_only: bool = True
+    min_image_width: int = Field(default=400, ge=0, le=4000)
+    min_image_height: int = Field(default=300, ge=0, le=4000)
+    fetch_detail_images: bool = True
+
+
 class SourcesConfig(BaseModel):
     itpro: ItproSourceConfig = Field(default_factory=ItproSourceConfig)
     topjobs: TopjobsSourceConfig = Field(default_factory=TopjobsSourceConfig)
@@ -62,6 +71,8 @@ class HermesConfig(BaseModel):
     job_titles: list[str] = Field(default_factory=list)
     include_keywords: list[str] = Field(default_factory=list)
     exclude_keywords: list[str] = Field(default_factory=list)
+    # Matched only in job title (stops QA/cyber/security despite broad descriptions).
+    exclude_title_keywords: list[str] = Field(default_factory=list)
     match_fields: list[str] = Field(
         default_factory=lambda: ["title", "company", "location"]
     )
@@ -90,11 +101,13 @@ class HermesConfig(BaseModel):
         description="Keep jobs when the site does not expose a posting/opening date.",
     )
     sources: SourcesConfig = Field(default_factory=SourcesConfig)
+    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
 
     @field_validator(
         "job_titles",
         "include_keywords",
         "exclude_keywords",
+        "exclude_title_keywords",
         "role_keywords",
         "track_keywords",
         "location_include",

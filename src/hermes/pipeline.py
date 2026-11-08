@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from hermes.config import HermesConfig, Settings, load_config
+from hermes.enrich import enrich_images
 from hermes.filters import filter_jobs
 from hermes.models import JobPosting, SourceStatus, SourceUnavailableError
 from hermes.notify.telegram import send_job_batch
@@ -69,6 +70,7 @@ def run_pipeline(
     )
 
     filtered = filter_jobs(raw_jobs, config)
+    filtered = enrich_images(filtered, config)
     filt_src: dict[str, int] = {}
     for job in filtered:
         filt_src[job.source] = filt_src.get(job.source, 0) + 1
@@ -80,12 +82,14 @@ def run_pipeline(
 
     if dry_run:
         for job in filtered:
+            image_note = job.image_url or "(no image)"
             logger.info(
-                "[dry-run] %s | %s @ %s | %s",
+                "[dry-run] %s | %s @ %s | %s | image=%s",
                 job.source,
                 job.title,
                 job.company,
                 job.url,
+                image_note,
             )
         return filtered
 

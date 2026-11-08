@@ -30,10 +30,18 @@ class JobStore:
                     location TEXT NOT NULL,
                     url TEXT NOT NULL,
                     posted_at TEXT,
-                    seen_at TEXT NOT NULL
+                    seen_at TEXT NOT NULL,
+                    image_url TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(jobs)")
+            }
+            if "image_url" not in columns:
+                conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN image_url TEXT NOT NULL DEFAULT ''"
+                )
 
     def insert_new(self, jobs: list[JobPosting]) -> list[JobPosting]:
         new_jobs: list[JobPosting] = []
@@ -44,8 +52,8 @@ class JobStore:
                 cursor = conn.execute(
                     """
                     INSERT OR IGNORE INTO jobs
-                    (job_id, source, title, company, location, url, posted_at, seen_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (job_id, source, title, company, location, url, posted_at, seen_at, image_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job.job_id,
@@ -56,6 +64,7 @@ class JobStore:
                         job.url,
                         posted,
                         now,
+                        job.image_url or "",
                     ),
                 )
                 if cursor.rowcount == 1:

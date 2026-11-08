@@ -9,12 +9,14 @@ import httpx
 
 from hermes.config import HermesConfig
 from hermes.dates import parse_itpro_datetime
+from hermes.images import accept_media_url, best_poster_from_html
 from hermes.models import JobPosting
 
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://jobseeker.lk/wp-json/wp/v2/posts"
 CATEGORIES_API = "https://jobseeker.lk/wp-json/wp/v2/categories"
+MEDIA_API = "https://jobseeker.lk/wp-json/wp/v2/media"
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -42,7 +44,7 @@ class JobseekerSource:
                         "categories": cat_id,
                         "per_page": source_cfg.per_page,
                         "page": page,
-                        "_fields": "id,link,title,date,excerpt,content",
+                        "_fields": "id,link,title,date,excerpt,content,featured_media",
                     }
                     logger.info(
                         "Fetching jobseeker category=%s page=%s", cat_id, page
@@ -60,7 +62,7 @@ class JobseekerSource:
                         break
 
                     for row in rows:
-                        job = self._parse_row(row)
+                        job = self._parse_row(row, client, config)
                         if job is None or job.job_id in seen_ids:
                             continue
                         seen_ids.add(job.job_id)
@@ -96,7 +98,9 @@ class JobseekerSource:
                     ids.append(int(data[0]["id"]))
         return ids
 
-    def _parse_row(self, row: dict) -> JobPosting | None:
+    def _parse_row(
+        self, row: dict, client: httpx.Client, config: HermesConfig
+    ) -> JobPosting | None:
         post_id = row.get("id")
         title_obj = row.get("title") or {}
         title = _plain(title_obj.get("rendered") or "")
@@ -104,13 +108,17 @@ class JobseekerSource:
         if not post_id or not title or not link:
             return None
 
+        content_html = (row.get("content") or {}).get("rendered") or ""
         excerpt = _plain((row.get("excerpt") or {}).get("rendered") or "")
-        content = _plain((row.get("content") or {}).get("rendered") or "")
+        content = _plain(content_html)
         description = " ".join(part for part in (excerpt, content) if part).strip()
         location = _guess_location(description)
         company = _guess_company(description) or "See posting"
 
         posted_at = parse_itpro_datetime(str(row.get("date") or ""))
+        image_url = self._resolve_image(
+            row, content_html, link, client, config
+        )
 
         return JobPosting(
             job_id=f"jobseeker:{post_id}",
@@ -121,7 +129,40 @@ class JobseekerSource:
             url=link,
             posted_at=posted_at,
             description=description[:4000],
+            image_url=image_url,
         )
+
+    @staticmethod
+    def _resolve_image(
+        row: dict,
+        content_html: str,
+        link: str,
+        client: httpx.Client,
+        config: HermesConfig,
+    ) -> str:
+        telegram = config.telegram
+        featured = int(row.get("featured_media") or 0)
+        if featured > 0:
+            try:
+                response = client.get(f"{MEDIA_API}/{featured}")
+                response.raise_for_status()
+                media = response.json()
+                url = (media.get("source_url") or "").strip()
+                details = media.get("media_details") or {}
+                width = details.get("width")
+                height = details.get("height")
+                if url and accept_media_url(
+                    url,
+                    width=width,
+                    height=height,
+                    telegram=telegram,
+                ):
+                    return url
+            except Exception:
+                logger.debug("Jobseeker media fetch failed for %s", featured)
+
+        poster = best_poster_from_html(content_html, link, telegram=telegram)
+        return poster or ""
 
 
 def _plain(html_fragment: str) -> str:

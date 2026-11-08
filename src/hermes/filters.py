@@ -69,6 +69,16 @@ def _substring_match(term: str, text: str) -> bool:
     return term.lower() in text.lower()
 
 
+def _title_exclude_matches(term: str, job: JobPosting) -> bool:
+    title = (job.title or "").lower()
+    t = term.lower().strip()
+    if not t:
+        return False
+    if len(t) <= 4 and " " not in t and t.isalpha():
+        return re.search(rf"\b{re.escape(t)}\b", title) is not None
+    return _term_matches(term, job, ["title"])
+
+
 def _role_title_matches(job: JobPosting, role_terms: list[str]) -> bool:
     title = (job.title or "").lower()
     for term in role_terms:
@@ -144,8 +154,15 @@ def filter_jobs(jobs: list[JobPosting], config: HermesConfig) -> list[JobPosting
             "include filter is permissive."
         )
 
+    title_excludes = _normalize_terms(config.exclude_title_keywords)
+
     matched: list[JobPosting] = []
     for job in jobs:
+        if title_excludes and any(
+            _title_exclude_matches(ex, job) for ex in title_excludes
+        ):
+            continue
+
         if excludes and any(_term_matches(ex, job, fields) for ex in excludes):
             continue
 

@@ -7,6 +7,7 @@ import httpx
 
 from hermes.config import HermesConfig
 from hermes.dates import parse_rooster_datetime
+from hermes.images import accept_media_url
 from hermes.models import JobPosting
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ class RoosterSource:
                         break
 
                     for row in rows:
-                        job = self._parse_row(row)
+                        job = self._parse_row(row, config)
                         if job is None or job.job_id in seen_ids:
                             continue
                         seen_ids.add(job.job_id)
@@ -93,7 +94,7 @@ class RoosterSource:
             deduped.append(short)
         return deduped
 
-    def _parse_row(self, row: dict) -> JobPosting | None:
+    def _parse_row(self, row: dict, config: HermesConfig) -> JobPosting | None:
         job_id = row.get("id")
         title = (row.get("title") or "").strip()
         if not job_id or not title:
@@ -106,6 +107,7 @@ class RoosterSource:
 
         url = f"{VIEW_BASE}/{job_id}"
         posted_at = parse_rooster_datetime(str(row.get("created_at") or ""))
+        image_url = _image_from_row(row, config)
 
         return JobPosting(
             job_id=f"rooster:{job_id}",
@@ -115,4 +117,32 @@ class RoosterSource:
             location=location,
             url=url,
             posted_at=posted_at,
+            image_url=image_url,
         )
+
+
+def _image_from_row(row: dict, config: HermesConfig) -> str:
+    telegram = config.telegram
+    candidates: list[str] = []
+    for key in (
+        "image",
+        "banner",
+        "job_image",
+        "company_logo",
+        "logo",
+        "company_image",
+    ):
+        val = row.get(key)
+        if isinstance(val, str) and val.strip().startswith("http"):
+            candidates.append(val.strip())
+    company = row.get("company")
+    if isinstance(company, dict):
+        for key in ("logo", "image", "company_logo"):
+            val = company.get(key)
+            if isinstance(val, str) and val.strip().startswith("http"):
+                candidates.append(val.strip())
+
+    for url in candidates:
+        if accept_media_url(url, width=None, height=None, telegram=telegram):
+            return url
+    return ""

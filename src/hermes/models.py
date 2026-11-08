@@ -14,6 +14,7 @@ class JobPosting:
     url: str
     posted_at: datetime | None = None
     description: str = ""
+    image_url: str = ""
 
 
 class SourceUnavailableError(RuntimeError):

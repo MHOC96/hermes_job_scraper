@@ -24,6 +24,15 @@ track_keywords:
   - project management
 
 include_keywords: []
+
+# Blocked if they appear in the job title (QA, cyber, audit, etc.).
+exclude_title_keywords:
+  - quality assurance
+  - cyber security
+  - cybersecurity
+  - it audit
+  - qa
+
 exclude_keywords: []
 
 match_fields:
@@ -42,6 +51,14 @@ location_allow_empty: true
 
 max_posting_age_days: 14
 include_undated: false
+
+telegram:
+  send_job_images: true
+  photo_delay_seconds: 0.35
+  poster_only: true
+  min_image_width: 400
+  min_image_height: 300
+  fetch_detail_images: true
 
 sources:
   itpro:

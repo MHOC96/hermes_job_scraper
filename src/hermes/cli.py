@@ -75,3 +75,5 @@ def config_validate(
     typer.echo(f"  location_include: {len(cfg.location_include)}")
     typer.echo(f"  match_mode: {cfg.match_mode}")
     typer.echo(f"  enabled sources: {', '.join(enabled) or '(none)'}")
+    typer.echo(f"  telegram.send_job_images: {cfg.telegram.send_job_images}")
+    typer.echo(f"  telegram.poster_only: {cfg.telegram.poster_only}")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime
 
@@ -15,7 +16,9 @@ from hermes.tracks import category_order, classify_track
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_PHOTO_API = "https://api.telegram.org/bot{token}/sendPhoto"
 MAX_MESSAGE_CHARS = 3700
+MAX_CAPTION_CHARS = 1020
 
 SOURCE_LABELS = {
     "itpro": "ITPro.lk",
@@ -136,6 +139,96 @@ def _build_messages(
     return messages
 
 
+def _format_job_caption(job: JobPosting) -> str:
+    title = html.escape(job.title)
+    company = html.escape(job.company)
+    url = html.escape(job.url, quote=True)
+    source_label = html.escape(_label(job.source))
+
+    lines = [f"<b>{title}</b>", f"🏢 {company}"]
+    if job.location:
+        lines.append(f"📍 {html.escape(job.location)}")
+    if job.posted_at:
+        lines.append(f"🗓 {job.posted_at.strftime('%d %b %Y')}")
+    lines.append(f"via {source_label}")
+    lines.append(f'🔗 <a href="{url}">View &amp; apply</a>')
+    text = "\n".join(lines)
+    if len(text) > MAX_CAPTION_CHARS:
+        return text[: MAX_CAPTION_CHARS - 3] + "..."
+    return text
+
+
+def _send_photo(
+    photo_url: str,
+    caption: str,
+    *,
+    bot_token: str,
+    chat_id: str,
+    client: httpx.Client,
+) -> None:
+    url = TELEGRAM_PHOTO_API.format(token=bot_token)
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_url,
+        "caption": caption,
+        "parse_mode": "HTML",
+    }
+    response = client.post(url, json=payload)
+    if response.status_code >= 400:
+        downloaded = client.get(photo_url, follow_redirects=True)
+        downloaded.raise_for_status()
+        content_type = downloaded.headers.get("content-type", "image/jpeg")
+        files = {"photo": ("job.jpg", downloaded.content, content_type)}
+        data = {
+            "chat_id": chat_id,
+            "caption": caption,
+            "parse_mode": "HTML",
+        }
+        response = client.post(url, data=data, files=files)
+    response.raise_for_status()
+    body = response.json()
+    if not body.get("ok"):
+        raise RuntimeError(f"Telegram sendPhoto error: {body}")
+
+
+def _send_job_photos(
+    jobs: list[JobPosting],
+    *,
+    bot_token: str,
+    chat_id: str,
+    config: HermesConfig,
+) -> None:
+    tg = config.telegram
+    if not tg.send_job_images:
+        return
+
+    delay = tg.photo_delay_seconds
+    with httpx.Client(timeout=45.0) as client:
+        for target in parse_chat_ids(chat_id):
+            for job in jobs:
+                if not job.image_url:
+                    continue
+                caption = _format_job_caption(job)
+                try:
+                    _send_photo(
+                        job.image_url,
+                        caption,
+                        bot_token=bot_token,
+                        chat_id=target,
+                        client=client,
+                    )
+                    logger.info("Sent job photo for %s to %s", job.job_id, target)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Photo failed for %s (%s): %s",
+                        job.job_id,
+                        job.image_url[:80],
+                        type(exc).__name__,
+                    )
+                if delay > 0:
+                    time.sleep(delay)
+
+
 def _send_message(text: str, *, bot_token: str, chat_id: str) -> None:
     url = TELEGRAM_API.format(token=bot_token)
     payload = {
@@ -188,5 +281,15 @@ def send_job_batch(
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to send jobs to %s: %s", target, type(exc).__name__)
             failures.append(target)
+            continue
+        try:
+            _send_job_photos(
+                jobs,
+                bot_token=bot_token,
+                chat_id=target,
+                config=config,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to send job photos to %s: %s", target, type(exc).__name__)
     if failures:
         raise RuntimeError(f"Telegram delivery failed for: {', '.join(failures)}")
