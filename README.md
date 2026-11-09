@@ -131,8 +131,8 @@ To add another site: implement `JobSource` in `src/hermes/sources/`, register in
 - Groups **new** jobs **by role** (Backend, Software Engineer, AI/ML, Data Analysis, BA, ERP, Project Manager).
 - Summary lists role counts; each job line shows which site it came from.
 - Only **intern / internship / trainee / management trainee** titles pass filters (see `role_keywords`).
-- Optional **job flyer photos**: after the text summary, one `sendPhoto` per new job when `image_url` is set (`telegram` section in `config.yaml`).
-- **`poster_only: true`** skips small logos/icons; **`fetch_detail_images: true`** loads ITPro/TopJobs advert pages for flyers when the listing has no image.
+- Optional **job flyer photos**: jobs with an image are **not** repeated in the text list; you get a short summary, then one `sendPhoto` + caption per flyer (`telegram` section in `config.yaml`).
+- **`poster_only: true`** skips small logos/icons; **`fetch_detail_images: true`** loads **TopJobs** advert pages for flyers (other sources use listing/API images only).
 
 ```yaml
 telegram:

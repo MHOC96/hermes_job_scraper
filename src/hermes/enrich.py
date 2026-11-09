@@ -12,7 +12,7 @@ from hermes.models import JobPosting
 
 logger = logging.getLogger(__name__)
 
-_DETAIL_SOURCES = frozenset({"itpro", "topjobs"})
+_DETAIL_SOURCES = frozenset({"topjobs"})
 
 
 def enrich_images(jobs: list[JobPosting], config: HermesConfig) -> list[JobPosting]:

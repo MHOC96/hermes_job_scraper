@@ -4,8 +4,6 @@ import html
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime
-
 import httpx
 
 from hermes.config import HermesConfig
@@ -27,32 +25,53 @@ SOURCE_LABELS = {
     "xpressjobs": "XpressJobs",
     "jobseeker": "Jobseeker.lk",
 }
-_DIVIDER = "━━━━━━━━━━━━━━━"
 
 
 def _label(source: str) -> str:
     return SOURCE_LABELS.get(source, source)
 
 
-def _format_job(index: int, job: JobPosting) -> str:
-    title = html.escape(job.title)
-    company = html.escape(job.company)
+def _truncate_plain(text: str, max_len: int) -> str:
+    text = text.strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
+def _format_job_body(
+    job: JobPosting,
+    config: HermesConfig,
+    *,
+    index: int | None = None,
+    include_track: bool = True,
+) -> str:
+    title = html.escape(_truncate_plain(job.title, 200))
+    company = html.escape(_truncate_plain(job.company, 120))
     url = html.escape(job.url, quote=True)
-    source_label = html.escape(_label(job.source))
 
-    lines = [f"<b>{index}. {title}</b>", f"🏢 {company}"]
+    lines: list[str] = []
+    if include_track:
+        track = html.escape(classify_track(job, config))
+        lines.append(f"📌 {track}")
 
-    details: list[str] = []
+    head = f"<b>{index}. {title}</b>" if index is not None else f"<b>{title}</b>"
+    lines.append(head)
+    lines.append(f"🏢 {company}")
+
+    meta: list[str] = []
     if job.location:
-        details.append(f"📍 {html.escape(job.location)}")
+        meta.append(f"📍 {html.escape(job.location)}")
     if job.posted_at:
-        details.append(f"🗓 {job.posted_at.strftime('%d %b %Y')}")
-    details.append(f"via {source_label}")
-    if details:
-        lines.append("  ·  ".join(details))
+        meta.append(f"🗓 {job.posted_at.strftime('%d %b %Y')}")
+    if meta:
+        lines.append(" · ".join(meta))
 
-    lines.append(f'🔗 <a href="{url}">View &amp; apply</a>')
+    lines.append(f'🔗 <a href="{url}">Apply</a>')
     return "\n".join(lines)
+
+
+def _format_job(index: int, job: JobPosting, config: HermesConfig) -> str:
+    return _format_job_body(job, config, index=index, include_track=False)
 
 
 def _group_by_track(
@@ -77,60 +96,67 @@ def _summary_block(
     groups: list[tuple[str, list[JobPosting]]],
     source_status: dict[str, SourceStatus] | None,
 ) -> str:
-    now = datetime.now().strftime("%d %b %Y, %H:%M")
     noun = "internship" if total == 1 else "internships"
 
-    lines = [
-        f"🚀 <b>{total} new {noun}</b> (Colombo-area focus)",
-        f"<i>{html.escape(now)}</i>",
-        "",
-        "📂 <b>By role</b>",
-    ]
+    lines = [f"🚀 <b>{total} new {noun}</b>"]
 
     for name, items in groups:
         lines.append(f"• {html.escape(name)} — {len(items)}")
 
     if source_status:
-        lines.extend(["", "📡 <b>Sources</b>"])
+        warnings: list[str] = []
         for name in SOURCE_ORDER:
             status = source_status.get(name)
-            if status is None:
+            if status is None or status.ok:
                 continue
             label = html.escape(_label(name))
-            if not status.ok:
-                reason = html.escape(status.error or "unavailable")
-                lines.append(f"⚠️ {label} — {reason}")
-            elif status.fetched:
-                lines.append(f"✅ {label} — scanned")
-            else:
-                lines.append(f"✅ {label} — no new")
+            reason = html.escape(status.error or "unavailable")
+            warnings.append(f"⚠️ {label}: {reason}")
+        if warnings:
+            lines.append("")
+            lines.extend(warnings)
 
     return "\n".join(lines)
 
 
 def _section_head(label: str, count: int, *, continued: bool) -> str:
-    suffix = ", continued" if continued else ""
-    return f"{_DIVIDER}\n📌 <b>{html.escape(label)}</b> ({count}{suffix})"
+    if continued:
+        return ""
+    return f"\n<b>{html.escape(label)}</b>"
 
 
 def _build_messages(
-    jobs: list[JobPosting],
+    text_jobs: list[JobPosting],
     config: HermesConfig,
     source_status: dict[str, SourceStatus] | None,
+    *,
+    total_count: int,
+    photo_count: int,
+    all_groups: list[tuple[str, list[JobPosting]]] | None = None,
 ) -> list[str]:
-    groups = _group_by_track(jobs, config)
+    groups = _group_by_track(text_jobs, config) if text_jobs else []
+    summary_groups = all_groups or groups
     messages: list[str] = []
-    current = _summary_block(len(jobs), groups, source_status)
+    current = _summary_block(total_count, summary_groups, source_status)
+
+    if not text_jobs:
+        messages.append(current)
+        return messages
 
     for category, items in groups:
         section_open = False
         for idx, job in enumerate(items, start=1):
-            entry = _format_job(idx, job)
+            entry = _format_job(idx, job, config)
             head = _section_head(category, len(items), continued=idx > 1)
-            addition = f"\n\n{entry}" if section_open else f"\n\n{head}\n\n{entry}"
+            if section_open:
+                addition = f"\n\n{entry}"
+            elif head:
+                addition = f"\n\n{head}\n\n{entry}"
+            else:
+                addition = f"\n\n{entry}"
             if len(current) + len(addition) > MAX_MESSAGE_CHARS:
                 messages.append(current)
-                current = f"{head}\n\n{entry}"
+                current = f"{head}\n\n{entry}" if head else f"\n\n{entry}".strip()
             else:
                 current += addition
             section_open = True
@@ -139,23 +165,16 @@ def _build_messages(
     return messages
 
 
-def _format_job_caption(job: JobPosting) -> str:
-    title = html.escape(job.title)
-    company = html.escape(job.company)
-    url = html.escape(job.url, quote=True)
-    source_label = html.escape(_label(job.source))
-
-    lines = [f"<b>{title}</b>", f"🏢 {company}"]
-    if job.location:
-        lines.append(f"📍 {html.escape(job.location)}")
-    if job.posted_at:
-        lines.append(f"🗓 {job.posted_at.strftime('%d %b %Y')}")
-    lines.append(f"via {source_label}")
-    lines.append(f'🔗 <a href="{url}">View &amp; apply</a>')
-    text = "\n".join(lines)
-    if len(text) > MAX_CAPTION_CHARS:
-        return text[: MAX_CAPTION_CHARS - 3] + "..."
-    return text
+def _format_job_caption(job: JobPosting, config: HermesConfig) -> str:
+    text = _format_job_body(job, config, index=None, include_track=True)
+    if len(text) <= MAX_CAPTION_CHARS:
+        return text
+    return _format_job_body(
+        job,
+        config,
+        index=None,
+        include_track=True,
+    )[: MAX_CAPTION_CHARS - 3] + "..."
 
 
 def _send_photo(
@@ -208,7 +227,7 @@ def _send_job_photos(
             for job in jobs:
                 if not job.image_url:
                     continue
-                caption = _format_job_caption(job)
+                caption = _format_job_caption(job, config)
                 try:
                     _send_photo(
                         job.image_url,
@@ -268,7 +287,22 @@ def send_job_batch(
     if not jobs:
         return
 
-    messages = _build_messages(jobs, config, source_status)
+    tg = config.telegram
+    photo_jobs = [
+        j for j in jobs if tg.send_job_images and (j.image_url or "").strip()
+    ]
+    photo_ids = {j.job_id for j in photo_jobs}
+    text_jobs = [j for j in jobs if j.job_id not in photo_ids]
+    all_groups = _group_by_track(jobs, config)
+
+    messages = _build_messages(
+        text_jobs,
+        config,
+        source_status,
+        total_count=len(jobs),
+        photo_count=len(photo_jobs),
+        all_groups=all_groups,
+    )
 
     failures: list[str] = []
     for target in parse_chat_ids(chat_id):
@@ -284,7 +318,7 @@ def send_job_batch(
             continue
         try:
             _send_job_photos(
-                jobs,
+                photo_jobs,
                 bot_token=bot_token,
                 chat_id=target,
                 config=config,

@@ -23,12 +23,11 @@ _ATTR_RE = re.compile(
     r"""([a-zA-Z_:][a-zA-Z0-9_:\-]*)\s*=\s*["']([^"']*)["']""",
     re.IGNORECASE,
 )
-_GENERIC_OG_IMAGES = frozenset(
+_TOPJOBS_GENERIC_OG = frozenset(
     {
         "https://topjobs.lk/images/public/tj.jpg",
     }
 )
-_TOPJOBS_POSTER_PATH = "/logo/"
 
 
 def absolutize(base_url: str, src: str) -> str:
@@ -50,11 +49,8 @@ def is_usable_telegram_photo_url(url: str) -> bool:
 
 
 def looks_like_logo_url(url: str) -> bool:
+    """Generic sites: reject obvious logo/icon filenames and paths."""
     lower = url.lower().split("?", 1)[0]
-    # TopJobs vacancy creatives: /logo/{employer}/NNNNcABOUTS.png (not a company logo).
-    if "topjobs.lk" in lower and _TOPJOBS_POSTER_PATH in lower:
-        if "abouts" in lower or re.search(r"/logo/[^/]+/\d+c", lower):
-            return False
     filename = lower.rsplit("/", 1)[-1]
     if any(hint in filename for hint in _LOGO_PATH_HINTS):
         return True
@@ -66,16 +62,26 @@ def looks_like_logo_url(url: str) -> bool:
     return False
 
 
-def _img_dimensions(tag: str) -> tuple[int | None, int | None]:
+def looks_like_logo_url_topjobs(url: str) -> bool:
+    """TopJobs vacancy creatives live under /logo/{code}/…cABOUTS.png — not icons."""
+    lower = url.lower().split("?", 1)[0]
+    if "topjobs.lk" in lower and "/logo/" in lower:
+        if "abouts" in lower or re.search(r"/logo/[^/]+/\d+c", lower):
+            return False
+    return looks_like_logo_url(url)
+
+
+def _img_dimensions(tag: str, *, include_style: bool) -> tuple[int | None, int | None]:
     w_m, h_m = _WIDTH_RE.search(tag), _HEIGHT_RE.search(tag)
     width = int(w_m.group(1)) if w_m else None
     height = int(h_m.group(1)) if h_m else None
-    if width is None:
-        sm = _STYLE_WIDTH_RE.search(tag)
-        width = int(sm.group(1)) if sm else None
-    if height is None:
-        sm = _STYLE_HEIGHT_RE.search(tag)
-        height = int(sm.group(1)) if sm else None
+    if include_style:
+        if width is None:
+            sm = _STYLE_WIDTH_RE.search(tag)
+            width = int(sm.group(1)) if sm else None
+        if height is None:
+            sm = _STYLE_HEIGHT_RE.search(tag)
+            height = int(sm.group(1)) if sm else None
     return width, height
 
 
@@ -112,19 +118,60 @@ def accept_media_url(
     width: int | None,
     height: int | None,
     telegram: TelegramConfig,
+    topjobs: bool = False,
 ) -> bool:
     if not is_usable_telegram_photo_url(url):
         return False
     if not telegram.poster_only:
         return True
-    if looks_like_logo_url(url):
+    if topjobs:
+        if looks_like_logo_url_topjobs(url):
+            return False
+    elif looks_like_logo_url(url):
         return False
     if width is not None and height is not None:
         if width < telegram.min_image_width or height < telegram.min_image_height:
             return False
         return True
-    # No dimensions: accept non-logo URLs (featured flyers often lack attrs in HTML).
     return True
+
+
+def _best_img_from_html(
+    html: str,
+    base_url: str,
+    *,
+    telegram: TelegramConfig,
+    topjobs: bool,
+) -> str | None:
+    if not html:
+        return None
+
+    best_url: str | None = None
+    best_area = 0
+    include_style = topjobs
+
+    for tag in _IMG_TAG_RE.findall(html):
+        src_m = _SRC_RE.search(tag)
+        if not src_m:
+            continue
+        url = absolutize(base_url, src_m.group(1))
+        if topjobs and _is_decorative_topjobs_img(url):
+            continue
+        width, height = _img_dimensions(tag, include_style=include_style)
+        area = (width or 0) * (height or 0)
+        if not accept_media_url(
+            url,
+            width=width,
+            height=height,
+            telegram=telegram,
+            topjobs=topjobs,
+        ):
+            continue
+        if area > best_area or best_url is None:
+            best_url = url
+            best_area = area if area else best_area
+
+    return best_url
 
 
 def best_poster_from_html(
@@ -133,47 +180,47 @@ def best_poster_from_html(
     *,
     telegram: TelegramConfig,
 ) -> str | None:
+    """Jobseeker and other non-TopJobs HTML (no TopJobs /logo/ rules)."""
     if not html:
         return None
 
-    best_url: str | None = None
-    best_area = 0
-
-    for tag in _IMG_TAG_RE.findall(html):
-        src_m = _SRC_RE.search(tag)
-        if not src_m:
-            continue
-        url = absolutize(base_url, src_m.group(1))
-        if _is_decorative_topjobs_img(url):
-            continue
-        width, height = _img_dimensions(tag)
-        area = (width or 0) * (height or 0)
-        if not accept_media_url(url, width=width, height=height, telegram=telegram):
-            continue
-        if area > best_area or best_url is None:
-            best_url = url
-            best_area = area if area else best_area
-
-    if best_url:
-        return best_url
-
-    for raw in _og_image_urls(html):
-        normalized = absolutize(base_url, raw)
-        if normalized.lower().rstrip("/") in _GENERIC_OG_IMAGES:
-            continue
-        if accept_media_url(normalized, width=None, height=None, telegram=telegram):
-            return normalized
-    return None
-
-
-def og_image_from_html(html: str, base_url: str, *, telegram: TelegramConfig) -> str | None:
-    poster = best_poster_from_html(html, base_url, telegram=telegram)
+    poster = _best_img_from_html(html, base_url, telegram=telegram, topjobs=False)
     if poster:
         return poster
+
     for raw in _og_image_urls(html):
         normalized = absolutize(base_url, raw)
-        if normalized.lower().rstrip("/") in _GENERIC_OG_IMAGES:
-            continue
-        if accept_media_url(normalized, width=None, height=None, telegram=telegram):
+        if accept_media_url(
+            normalized, width=None, height=None, telegram=telegram, topjobs=False
+        ):
             return normalized
     return None
+
+
+def poster_from_topjobs_html(
+    html: str,
+    base_url: str,
+    *,
+    telegram: TelegramConfig,
+) -> str | None:
+    """TopJobs advert servlet: /logo/…cABOUTS flyers, CSS dimensions, skip site og:image."""
+    poster = _best_img_from_html(html, base_url, telegram=telegram, topjobs=True)
+    if poster:
+        return poster
+
+    for raw in _og_image_urls(html):
+        normalized = absolutize(base_url, raw)
+        if normalized.lower().rstrip("/") in _TOPJOBS_GENERIC_OG:
+            continue
+        if accept_media_url(
+            normalized, width=None, height=None, telegram=telegram, topjobs=True
+        ):
+            return normalized
+    return None
+
+
+# Backwards-compatible alias for enrich TopJobs path
+def og_image_from_html(html: str, base_url: str, *, telegram: TelegramConfig) -> str | None:
+    if "topjobs.lk" in base_url.lower():
+        return poster_from_topjobs_html(html, base_url, telegram=telegram)
+    return best_poster_from_html(html, base_url, telegram=telegram)
