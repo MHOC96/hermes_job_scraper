@@ -12,7 +12,7 @@ Built with **Python 3.10+** and **[Scrapling](https://github.com/D4Vinci/Scrapli
 
 | Tracked | Not tracked (local / VM only) |
 |---------|-------------------------------|
-| `src/`, `pyproject.toml`, `deploy/` | `.env` (Telegram token) |
+| `src/`, `pyproject.toml`, `deploy/`, `.github/` | `.env` (Telegram token) |
 | `config.example.yaml`, `.env.example` | `config.yaml` (your live filters) |
 | `README.md` | `*.pem`, `data/`, `*.db`, `*.pdf` |
 
@@ -153,6 +153,34 @@ rm -f data/hermes.db && hermes run
 # Windows PowerShell
 Remove-Item -Force data\hermes.db -ErrorAction SilentlyContinue; hermes run
 ```
+
+---
+
+## GitHub Actions (free hourly cron)
+
+You can run Hermes on GitHub Actions every hour (`cron: "17 * * * *"`) without needing a VM, using [`.github/workflows/hermes.yml`](.github/workflows/hermes.yml).
+
+### 1. Repository secrets
+
+Add these under **Settings → Secrets and variables → Actions → Repository secrets** (or via `gh secret set`):
+
+| Secret | Required | Purpose |
+|--------|----------|---------|
+| `TELEGRAM_BOT_TOKEN` | Yes | Bot token from [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_CHAT_ID` | Yes | Chat ID and/or `@channelusername` (comma-separated) |
+| `HERMES_CONFIG_YAML` | Recommended | Full contents of your `config.yaml` (falls back to `config.example.yaml` if omitted) |
+| `XPRESS_PROXY` | Optional | HTTP/SOCKS proxy URL for XpressJobs if cloud runner IPs are blocked |
+
+### 2. Deduplication state (`hermes-state` branch)
+
+- Each live run restores `data/hermes.db` from the dedicated **`hermes-state`** branch before scraping and commits it back only if new jobs were inserted (keeping `main` history clean).
+- Requires **Actions → General → Workflow permissions → Read and write permissions** (also declared in the workflow via `permissions: contents: write`).
+- To reset seen jobs on GitHub Actions, delete the `hermes-state` branch (`git push origin --delete hermes-state`) and trigger a manual run.
+
+### 3. Manual runs & maintenance
+
+- Open the **Actions** tab → **Hermes Job Scraper** → **Run workflow** (with optional `dry_run: true` to test without updating `hermes.db` or messaging Telegram).
+- Note: GitHub automatically pauses `schedule` triggers if a repository has no commits on the default branch (`main`) for **60 days**; click **Enable workflow** in the Actions tab if that ever happens.
 
 ---
 

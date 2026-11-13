@@ -1,0 +1,125 @@
+name: Hermes Job Scraper
+
+on:
+  schedule:
+    # Runs every hour at :17 UTC (avoids :00 top-of-hour GitHub Actions queue spikes)
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Scrape and filter without updating hermes.db or sending Telegram alerts"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hermes-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "pyproject.toml"
+
+      - name: Install Hermes
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Prepare config.yaml
+        env:
+          HERMES_CONFIG_YAML: ${{ secrets.HERMES_CONFIG_YAML }}
+        run: |
+          if [ -n "$HERMES_CONFIG_YAML" ]; then
+            printf '%s\n' "$HERMES_CONFIG_YAML" > config.yaml
+            echo "Loaded config.yaml from HERMES_CONFIG_YAML secret."
+          elif [ -f config.yaml ]; then
+            echo "Using config.yaml from repository."
+          else
+            cp config.example.yaml config.yaml
+            echo "::warning::HERMES_CONFIG_YAML secret is not set; using config.example.yaml."
+          fi
+          hermes config validate
+
+      - name: Restore deduplication database
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data
+          STATE_DIR="${RUNNER_TEMP}/hermes-state"
+          rm -rf "$STATE_DIR"
+          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$REPO_URL" hermes-state >/dev/null 2>&1; then
+            git clone --branch hermes-state --single-branch --depth 1 "$REPO_URL" "$STATE_DIR"
+            if [ -f "$STATE_DIR/hermes.db" ]; then
+              cp "$STATE_DIR/hermes.db" data/hermes.db
+              echo "Restored data/hermes.db from hermes-state branch."
+            fi
+          else
+            echo "hermes-state branch not found; starting with a fresh database."
+          fi
+
+      - name: Run Hermes
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          XPRESS_PROXY: ${{ secrets.XPRESS_PROXY }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            hermes run --dry-run
+          else
+            if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+              echo "::error::TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID secrets must be set before running live."
+              exit 1
+            fi
+            hermes run
+          fi
+
+      - name: Persist deduplication database
+        if: ${{ success() && inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f data/hermes.db ]; then
+            echo "No data/hermes.db generated; skipping state push."
+            exit 0
+          fi
+
+          STATE_DIR="${RUNNER_TEMP}/hermes-state"
+          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if [ ! -d "$STATE_DIR/.git" ]; then
+            rm -rf "$STATE_DIR"
+            mkdir -p "$STATE_DIR"
+            git -C "$STATE_DIR" init -b hermes-state
+            git -C "$STATE_DIR" remote add origin "$REPO_URL"
+          fi
+
+          git -C "$STATE_DIR" config user.name "github-actions[bot]"
+          git -C "$STATE_DIR" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          cp data/hermes.db "$STATE_DIR/hermes.db"
+          git -C "$STATE_DIR" add hermes.db
+
+          if git -C "$STATE_DIR" diff --cached --quiet; then
+            echo "No changes to hermes.db; nothing to push."
+            exit 0
+          fi
+
+          git -C "$STATE_DIR" commit -m "chore: update hermes.db [skip ci]"
+          git -C "$STATE_DIR" push -u origin hermes-state
